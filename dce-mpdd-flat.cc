@@ -1,4 +1,3 @@
-#include "ns3/dce-module.h"
 
 #include "ns3/core-module.h"
 #include "ns3/wifi-module.h"
@@ -11,24 +10,31 @@
 #include "ns3/udp-client-server-helper.h"
 #include "ns3/udp-echo-helper.h"
 
+#include "ns3/dce-module.h"
+
+
 using namespace ns3;
 
-
-void
-PrintTcpFlags (std::string key, std::string value)
+void setPos (Ptr<Node> n, int x, int y, int z)
 {
-  NS_LOG_INFO (key << "=" << value);
+  Ptr<ConstantPositionMobilityModel> loc = CreateObject<ConstantPositionMobilityModel> ();
+  n->AggregateObject (loc);
+  Vector locVec2 (x, y, z);
+  loc->SetPosition (locVec2);
 }
 
 int main(int argc, char *argv[])
 {
-    uint32_t nDevices = 1;
+    uint32_t nDevices = 0;
 
     CommandLine cmd;
     cmd.AddValue("devices", "Number of wifi devices", nDevices);
 
     cmd.Parse(argc, argv);
 
+    if (nDevices == 0){
+        nDevices = 1;
+    }
 
     NodeContainer staNodes;
     NodeContainer apNode;
@@ -43,6 +49,7 @@ int main(int argc, char *argv[])
     YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default();
 
     wifi.SetRemoteStationManager("ns3::ArfWifiManager");
+    wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
 
     wifiPhy.SetChannel(wifiChannel.Create());
 
@@ -51,21 +58,24 @@ int main(int argc, char *argv[])
                      "ActiveProbing", BooleanValue(false));
 
     NetDeviceContainer staDevices = wifi.Install(wifiPhy, wifiMac, staNodes);
+    NetDeviceContainer devices = staDevices;
 
     wifiMac.SetType("ns3::ApWifiMac", "Ssid", SsidValue(ssid));
     NetDeviceContainer apDevices = wifi.Install(wifiPhy, wifiMac, apNode);
+    devices.Add(apDevices);
 
     MobilityHelper mobility;
     mobility.SetPositionAllocator("ns3::GridPositionAllocator",
-        "MinX", DoubleValue(0.0),
-        "MinY", DoubleValue(0.0),
-        "DeltaX", DoubleValue(5.0),
-        "DeltaY", DoubleValue(10.0),
-        "GridWidth", UintegerValue(3),
-        "LayoutType", StringValue("RowFirst"));
+      "MinX", DoubleValue(-5.0),
+      "MinY", DoubleValue(-5.0),
+      "DeltaX", DoubleValue(-5.0),
+      "DeltaY", DoubleValue(-5.0),
+      "GridWidth", UintegerValue(3),
+      "LayoutType", StringValue("RowFirst"));
 
-    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+    mobility.SetMobilityModel("ns3::RandomWalk2dMobilityModel", "Bounds", RectangleValue (Rectangle (-50, 50, -50, 50)));
     mobility.Install(staNodes);
+
     mobility.Install(apNode);
 
     InternetStackHelper internet;
@@ -73,39 +83,50 @@ int main(int argc, char *argv[])
     internet.Install(apNode);
 
     Ipv4AddressHelper address;
-    address.SetBase("10.1.1.0", "255.255.255.0");
+    address.SetBase("192.168.1.0", "255.255.255.0", "0.0.0.1");
     Ipv4InterfaceContainer apInterfaces = address.Assign(apDevices);
     Ipv4InterfaceContainer staInterfaces = address.Assign(staDevices);
 
-    NetDeviceContainer devices;
+
+
     DceManagerHelper dceManager;
 
     ApplicationContainer apps;
     DceApplicationHelper dce;
 
-
     dceManager.Install(staNodes);
     dceManager.Install(apNode);
 
     dce.SetStackSize(1<<20);
-    
-    /*
-    dce.SetBinary("udp-server");
-    dce.ResetArguments();
-    apps = dce.Install(apNode.Get(0));
-    apps.Start(Seconds(4.0));
 
-    dce.SetBinary("udp-client");
-    dce.ResetArguments();
-    dce.AddArgument("10.1.1.1");
-    apps = dce.Install(staNodes.Get(0));
-    apps.Start(Seconds(4.5));
-    */
+    dce.SetBinary ("iperf");
+    dce.ResetArguments ();
+    dce.ResetEnvironment ();
+    dce.AddArgument ("-c");
+    dce.AddArgument ("192.168.1.1");
+    dce.ParseArguments ("-y C");
+    dce.AddArgument ("-i");
+    dce.AddArgument ("1");
+    dce.AddArgument ("--time");
+    dce.AddArgument ("10");
 
-    Ipv4GlobalRoutingHelper::PopulateRoutingTables();
+    apps = dce.Install (staNodes.Get(0));
+    apps.Start (Seconds (5.0));
 
 
-    Simulator::Stop(Seconds(15.05));
+    // Launch iperf server on node 1
+    dce.SetBinary ("iperf");
+    dce.ResetArguments ();
+    dce.ResetEnvironment ();
+    dce.AddArgument ("-s");
+    dce.AddArgument ("-P");
+    dce.AddArgument ("1");
+
+    apps = dce.Install (apNode.Get(0));
+    apps.Start (Seconds (1.0));
+
+
+    Simulator::Stop(Seconds(30.00));
     Simulator::Run();
     Simulator::Destroy();
     return 0;

@@ -16,3 +16,20 @@ def build(bld):
 				  target='bin/dce-mpdd-flat',
 				  source=['dce-mpdd-flat.cc'],
 				  )
+
+    bld.build_a_script('dce', needed = ['core',
+                                        'internet',
+                                        'dce',
+                                        'point-to-point',
+                                        'mobility', 'wifi', 'applications'],
+          target='bin/wifi-ap',
+          source=['wifi-ap.cc'],
+          )
+    bld.build_a_script('dce', needed = ['core',
+                                        'internet',
+                                        'dce',
+                                        'point-to-point',
+                                        'mobility', 'wifi', 'applications'],
+          target='bin/wifi-simple-infra',
+          source=['wifi-simple-infra.cc'],
+          )
