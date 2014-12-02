@@ -88,8 +88,7 @@ int main(int argc, char *argv[])
     dceManager.Install(apNode);
 
     dce.SetStackSize(1<<20);
-    
-    /*
+
     dce.SetBinary("udp-server");
     dce.ResetArguments();
     apps = dce.Install(apNode.Get(0));
@@ -100,7 +99,7 @@ int main(int argc, char *argv[])
     dce.AddArgument("10.1.1.1");
     apps = dce.Install(staNodes.Get(0));
     apps.Start(Seconds(4.5));
-    */
+
 
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 

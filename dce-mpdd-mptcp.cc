@@ -77,8 +77,13 @@ int main(int argc, char *argv[])
     Ipv4InterfaceContainer apInterfaces = address.Assign(apDevices);
     Ipv4InterfaceContainer staInterfaces = address.Assign(staDevices);
 
-    NetDeviceContainer devices;
     DceManagerHelper dceManager;
+
+    dceManager.SetNetworkStack ("ns3::LinuxSocketFdFactory", "Library", StringValue ("liblinux.so"));
+    LinuxStackHelper stack;
+    stack.Install (nodes);
+    stack.Install (routers);
+
 
     ApplicationContainer apps;
     DceApplicationHelper dce;
@@ -88,8 +93,9 @@ int main(int argc, char *argv[])
     dceManager.Install(apNode);
 
     dce.SetStackSize(1<<20);
-    
+
     /*
+
     dce.SetBinary("udp-server");
     dce.ResetArguments();
     apps = dce.Install(apNode.Get(0));
@@ -102,7 +108,6 @@ int main(int argc, char *argv[])
     apps.Start(Seconds(4.5));
     */
 
-    Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
 
     Simulator::Stop(Seconds(15.05));
