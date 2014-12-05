@@ -32,11 +32,3 @@ def build(bld):
           target='bin/dce-mpdd-nested-csma',
           source=['dce-mpdd-nested-csma.cc'],
           )
-    bld.build_a_script('dce', needed = ['core',
-                            'internet',
-                            'dce',
-                            'point-to-point', 'csma',
-                            'mobility', 'wifi', 'applications'],
-      target='bin/csma-test',
-      source=['csma-test.cc'],
-      )

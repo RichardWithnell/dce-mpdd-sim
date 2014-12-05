@@ -40,7 +40,7 @@ get_leaves(uint32_t stride, uint32_t height)
     return pow(stride, height);
 }
 
-uint32_t
+int
 get_parent(int node, int stride)
 {
     if(node <= 0) return -1;
@@ -79,65 +79,67 @@ void cantor(Ptr<ListPositionAllocator> positionAlloc, float x, float y, float le
 
 int main(int argc, char *argv[])
 {
-    std::string wifiBaseName = "WiFi";
+    DceApplicationHelper dce;
+    DceManagerHelper dceManager;
+    ApplicationContainer apps;
+    LinuxStackHelper stack;
+    NetDeviceContainer apDevices;
+    NetDeviceContainer staDevices;
+
+    std::stringstream cmdStream;
 
     uint32_t nDevices = 15;
-
-    float initX = 0.00;
-    float initY = 0.00;
-    float deltaY = 10.00;
-    float deltaX = 10.00;
     uint32_t treeStride = 2;
-    uint32_t nInterfaces = 1;
-    uint32_t nRootInterfaces = 0;
-    uint32_t leaves = 0;
-    uint32_t height = 0;
-
-    float posX = initX;
-    float posY = initY;
+    uint32_t nInterfaces = 0;
+    uint32_t nRootInterfaces = 2;
 
     CommandLine cmd;
     cmd.AddValue("devices", "Number of wifi devices", nDevices);
     cmd.AddValue("stride", "Tree Stride", treeStride);
     cmd.AddValue("interfaces", "Number of gateway interfaces for non root devices", nInterfaces);
     cmd.AddValue("root_interfaces", "Number of gateway interfaces for root device", nRootInterfaces);
-    cmd.AddValue("spacing", "Space between devices", deltaX);
-
-    deltaY = deltaX;
 
     cmd.Parse(argc, argv);
 
-    height = get_height(treeStride, nDevices);
-    leaves = get_leaves(treeStride, height);
+    CsmaHelper csma;
+    csma.SetChannelAttribute ("DataRate", StringValue ("10Mbps"));
+    csma.SetChannelAttribute ("Delay", TimeValue (NanoSeconds (10000000)));
 
-    std::cout << "Tree Height: " << height << " Tree Leaves: " << leaves << std::endl;
 
-    NodeContainer nodes;
+    NodeContainer nodes, routers, allHosts;
 
     nodes.Create(nDevices);
+    routers.Create(nRootInterfaces);
+    allHosts.Add(nodes);
+    allHosts.Add(routers);
 
-    InternetStackHelper internet;
-    internet.Install(nodes);
 
+    /**
+    * Setup Linux Stack
+    **/
+    dceManager.SetTaskManagerAttribute ("FiberManagerType", StringValue ("UcontextFiberManager"));
 
-    NetDeviceContainer apDevices;
-    NetDeviceContainer staDevices;
+#ifdef KERNEL_STACK
+    dceManager.SetNetworkStack ("ns3::LinuxSocketFdFactory", "Library", StringValue ("liblinux.so"));
+    dceManager.Install (allHosts);
+    stack.Install (allHosts);
+#else
+    NS_LOG_ERROR ("Linux kernel stack for DCE is not available. build with dce-linux module.");
+    return 0;
+#endif
 
+    /****
+    * Setup tree structure
+    ****/
     for (long i = 0; i < nodes.GetN(); i++) {
         NodeContainer tempNodes;
-        CsmaHelper csma;
-        csma.SetChannelAttribute ("DataRate", StringValue ("100Mbps"));
-        csma.SetChannelAttribute ("Delay", TimeValue (NanoSeconds (10000000)));
 
         uint32_t firstChild = get_first_child(i, treeStride);
 
-        //NetDeviceContainer dev = csma.Install(nodes.Get(i));
         tempNodes.Add(nodes.Get(i));
 
         for(int j = 0; j < treeStride; j++){
             if((firstChild+j) >= nodes.GetN()) break;
-            //dev = csma.Install(nodes.Get(firstChild+j));
-            //staDevices.Add(dev);
             tempNodes.Add(nodes.Get(firstChild+j));
         }
 
@@ -149,6 +151,9 @@ int main(int argc, char *argv[])
         }
     }
 
+    /****
+    * Setup Addresses
+    ****/
     for (long i = 0; i < nodes.GetN(); i++) {
         std::stringstream tempAddress;
         Ipv4AddressHelper address;
@@ -166,11 +171,97 @@ int main(int argc, char *argv[])
         }
     }
 
+    /**
+    * Setup Routing
+    **/
+
+    for (long i = 0; i < nodes.GetN(); i++) {
+        std::stringstream cmd;
+        int parent = get_parent(i, treeStride);
+        if(parent >= 0){
+            cmd << "route add default via 192.168." << parent << ".1 dev sim0 #mycommand";
+            //std::cout << "Adding to Node: " << i << std::endl;
+            //std::cout << cmd.str() << std::endl;
+            LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.1), cmd.str());
+            cmd.str(std::string());
+            cmd << "route add 192.168." << i << ".0/24 dev sim1 #mycommand";
+            LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.1), cmd.str());
+            cmd.str(std::string());
+            cmd << "route add 192.168." << parent << ".0/24 dev sim0 #mycommand";
+            LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.1), cmd.str());
+
+            /*Setup NAT*/
+            cmd.str(std::string());
+            cmd << "route add 192.168." << parent << ".0/24 dev sim0 #mycommand";
+
+        }
+    }
+
+    NetDeviceContainer gatewayDevices;
+    /*Add Gateway Routers*/
+    PointToPointHelper pointToPoint;
+    //pointToPoint.SetChannelAttribute ("DataRate", StringValue ("100Mbps"));
+    //pointToPoint.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (30)));
+    for (int i = 0; i < routers.GetN(); i++){
+      std::stringstream tempAddress;
+      NetDeviceContainer dev = pointToPoint.Install(nodes.Get(0), routers.Get(i));
+      Ipv4AddressHelper address;
+      tempAddress << "172.16." << i << ".0";
+      address.SetBase(tempAddress.str().c_str(), "255.255.255.0");
+      address.Assign(dev);
+      gatewayDevices.Add(dev);
+    }
+
+    /****
+    *
+    * Setup the MPDD
+    *
+    ****/
+
+    //Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
+   //LinuxStackHelper::PopulateRoutingTables ();
+
+    dce.SetStackSize(1 << 20);
+
+    stack.SysctlSet(nodes, ".net.ipv4.conf.all.forwarding", "1");
 
 
 
+    dce.SetBinary ("iptables");
+    dce.ResetArguments();
+    dce.ResetEnvironment();
+    dce.AddArgument ("-t");
+    dce.AddArgument ("nat");
+    dce.AddArgument ("-A");
+    dce.AddArgument ("POSTROUTING");
+    dce.AddArgument ("-o");
+    dce.AddArgument ("sim0");
+    dce.AddArgument ("-j");
+    dce.AddArgument ("MASQUERADE");
 
-    Simulator::Stop(Seconds(15.05));
+    apps = dce.Install(nodes);
+    apps.Start(Seconds (1));
+    /*
+    dce.SetBinary("mpdd");
+    dce.ResetArguments();
+    dce.ResetEnvironment();
+
+    apps = dce.Install(nodes);
+
+    apps.Start(Seconds (5));
+*/
+    //csma.EnablePcapAll("mpdd-nested");
+
+    dce.SetBinary("ping");
+    dce.ResetArguments();
+    dce.ResetEnvironment();
+    dce.AddArgument ("192.168.1.1");
+
+    apps = dce.Install(nodes);
+
+    apps.Start(Seconds (10));
+
+    Simulator::Stop(Seconds(100.00));
     Simulator::Run();
     Simulator::Destroy();
     return 0;

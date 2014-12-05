@@ -131,7 +131,7 @@ int main(int argc, char *argv[])
     Ptr<ListPositionAllocator> positionAlloc = CreateObject<ListPositionAllocator> ();
     NetDeviceContainer apDevices;
     NetDeviceContainer staDevices;
-    int j = 1;
+    int j = 0;
     long expWidth = deltaX * leaves;
     std::cout << "ExpWidth: " << expWidth << std::endl;
 
@@ -159,18 +159,14 @@ int main(int argc, char *argv[])
         //address.Assign(dev);
         std::cout << "Equals: " << i+1 << " : " << (long)pow(treeStride, j) << std::endl;
         long nNodes = (long)pow(treeStride, j);
-        if(i == 0){
-            std::cout << "Coord( " << posX << " , " << posY << " )" << std::endl;
-            positionAlloc->Add (ns3::Vector (posX, posY, 0.0));
-            posY += deltaY;
-        } else if(nNodes == i){
+        if(nNodes == i+1){
             //std::cout << "Increment Y " << nNodes << std::endl;
             deltaX = expWidth/nNodes;
-            posX = initX-(expWidth/2)+(deltaX/nNodes);
+            if(i != 0) posX = initX-(expWidth/2)+(deltaX/nNodes);
             //posX = initX;
+            posY += deltaY;
             std::cout << "Coord( " << posX << " , " << posY << " )" << std::endl;
             positionAlloc->Add (ns3::Vector (posX, posY, 0.0));
-            posY += deltaY;
             j++;
         } else {
             posX += deltaX;
