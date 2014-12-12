@@ -9,14 +9,6 @@ def configure(conf):
 
 def build(bld):
     bld.build_a_script('dce', needed = ['core',
-                                        'internet',
-                                        'dce',
-                                        'point-to-point',
-                                        'mobility', 'wifi', 'applications'],
-				  target='bin/dce-mpdd-flat',
-				  source=['dce-mpdd-flat.cc'],
-				  )
-    bld.build_a_script('dce', needed = ['core',
                                     'internet',
                                     'dce',
                                     'point-to-point',
