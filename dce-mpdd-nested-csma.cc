@@ -252,12 +252,12 @@ int main(int argc, char *argv[])
     dce.AddArgument("/etc/mpd/mpdd.conf");
     dce.IgnoreInterface("lo");
     dce.DisseminationInterface("sim1");
-    /*2 creates a simple config file, that doens't use libconfig. "node" is an ID.*/
+    /*arg - 2 creates a simple config file, that doens't use libconfig. "node" is an ID.*/
     apps = dce.Install(nodes, 2, "node");
 
     apps.Start(Seconds (3));
 
-    //csma.EnablePcapAll("mpdd-nested");
+    csma.EnablePcapAll("mpdd-nested");
 
     Simulator::Stop(Seconds(10.00));
     Simulator::Run();
