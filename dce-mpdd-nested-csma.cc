@@ -228,10 +228,11 @@ int main(int argc, char *argv[])
         LinuxStackHelper::RunIp (nodes.Get(i), Seconds (2), "addr");
     }
 
-
-    appHelper.SetBinary ("iptables");
-    appHelper.ResetArguments();
-    appHelper.ResetEnvironment();
+    /**/
+    appHelper.SetBinary ("xtables-multi");
+    appHelper.ResetArguments ();
+    appHelper.ResetEnvironment ();
+    appHelper.AddArgument ("iptables");
     appHelper.AddArgument ("-t");
     appHelper.AddArgument ("nat");
     appHelper.AddArgument ("-A");
