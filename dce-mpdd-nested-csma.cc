@@ -62,33 +62,20 @@ is_leaf(uint32_t stride, uint32_t nodes, uint32_t nodeIdx)
     return (nodes-leaves) < nodeIdx ? 1 : 0;
 }
 
-void cantor(Ptr<ListPositionAllocator> positionAlloc, float x, float y, float len, float maxHeight) {
-
-    if(maxHeight > 0) maxHeight--;
-    else return;
-
-    //line(x,y,x+len,y);
-    positionAlloc->Add (ns3::Vector (x+(len/2), y, 0.0));
-
-    y += 10.00;
-
-
-    cantor(positionAlloc, x, y, len/3, maxHeight);
-    cantor(positionAlloc, x+len*2/3, y, len/3, maxHeight);
-}
-
 int main(int argc, char *argv[])
 {
-    DceApplicationHelper dce;
+    DceApplicationHelper appHelper;
+    MpddHelper dce;
     DceManagerHelper dceManager;
     ApplicationContainer apps;
+    ApplicationContainer confapps;
     LinuxStackHelper stack;
     NetDeviceContainer apDevices;
     NetDeviceContainer staDevices;
 
     std::stringstream cmdStream;
 
-    uint32_t nDevices = 15;
+    uint32_t nDevices = 3;
     uint32_t treeStride = 2;
     uint32_t nInterfaces = 0;
     uint32_t nRootInterfaces = 2;
@@ -156,11 +143,15 @@ int main(int argc, char *argv[])
     ****/
     for (long i = 0; i < nodes.GetN(); i++) {
         std::stringstream tempAddress;
+        std::stringstream cmd;
         Ipv4AddressHelper address;
         NetDeviceContainer apDev = apDevices.Get(i);
         tempAddress << "192.168." << i << ".0";
         address.SetBase(tempAddress.str().c_str(), "255.255.255.0");
         address.Assign(apDev);
+
+        cmd << "link set dev sim0 up";
+        LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.1), cmd.str());
 
         uint32_t firstChild = get_first_child(i, treeStride);
 
@@ -179,34 +170,39 @@ int main(int argc, char *argv[])
         std::stringstream cmd;
         int parent = get_parent(i, treeStride);
         if(parent >= 0){
-            cmd << "route add default via 192.168." << parent << ".1 dev sim0 #mycommand";
+            cmd << "route add default via 192.168." << parent << ".1 dev sim0";
             //std::cout << "Adding to Node: " << i << std::endl;
             //std::cout << cmd.str() << std::endl;
             LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.1), cmd.str());
             cmd.str(std::string());
-            cmd << "route add 192.168." << i << ".0/24 dev sim1 #mycommand";
+            cmd << "route add 192.168." << i << ".0/24 dev sim1";
             LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.1), cmd.str());
             cmd.str(std::string());
-            cmd << "route add 192.168." << parent << ".0/24 dev sim0 #mycommand";
+            cmd << "route add 192.168." << parent << ".0/24 dev sim0";
             LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.1), cmd.str());
 
             /*Setup NAT*/
             cmd.str(std::string());
-            cmd << "route add 192.168." << parent << ".0/24 dev sim0 #mycommand";
-
+            cmd << "route add 192.168." << parent << ".0/24 dev sim0";
         }
     }
 
     NetDeviceContainer gatewayDevices;
+
     /*Add Gateway Routers*/
     PointToPointHelper pointToPoint;
     //pointToPoint.SetChannelAttribute ("DataRate", StringValue ("100Mbps"));
     //pointToPoint.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (30)));
     for (int i = 0; i < routers.GetN(); i++){
+      std::stringstream cmd;
       std::stringstream tempAddress;
+
       NetDeviceContainer dev = pointToPoint.Install(nodes.Get(0), routers.Get(i));
       Ipv4AddressHelper address;
       tempAddress << "172.16." << i << ".0";
+      cmd << "route add default via 172.16." << i << ".2 dev sim0" << std::endl;;
+      LinuxStackHelper::RunIp (nodes.Get(0), Seconds (1), cmd.str());
+
       address.SetBase(tempAddress.str().c_str(), "255.255.255.0");
       address.Assign(dev);
       gatewayDevices.Add(dev);
@@ -219,49 +215,50 @@ int main(int argc, char *argv[])
     ****/
 
     //Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
-   //LinuxStackHelper::PopulateRoutingTables ();
+    //LinuxStackHelper::PopulateRoutingTables ();
 
     dce.SetStackSize(1 << 20);
+    appHelper.SetStackSize(1 << 20);
 
     stack.SysctlSet(nodes, ".net.ipv4.conf.all.forwarding", "1");
 
+    for (long i = 0; i < nodes.GetN(); i++) {
+        LinuxStackHelper::RunIp (nodes.Get(i), Seconds (2), "route show");
+
+        LinuxStackHelper::RunIp (nodes.Get(i), Seconds (2), "addr");
+    }
 
 
-    dce.SetBinary ("iptables");
-    dce.ResetArguments();
-    dce.ResetEnvironment();
-    dce.AddArgument ("-t");
-    dce.AddArgument ("nat");
-    dce.AddArgument ("-A");
-    dce.AddArgument ("POSTROUTING");
-    dce.AddArgument ("-o");
-    dce.AddArgument ("sim0");
-    dce.AddArgument ("-j");
-    dce.AddArgument ("MASQUERADE");
+    appHelper.SetBinary ("iptables");
+    appHelper.ResetArguments();
+    appHelper.ResetEnvironment();
+    appHelper.AddArgument ("-t");
+    appHelper.AddArgument ("nat");
+    appHelper.AddArgument ("-A");
+    appHelper.AddArgument ("POSTROUTING");
+    appHelper.AddArgument ("-o");
+    appHelper.AddArgument ("sim0");
+    appHelper.AddArgument ("-j");
+    appHelper.AddArgument ("MASQUERADE");
+    confapps = appHelper.Install(nodes);
+    confapps.Start(Seconds (0.5));
 
-    apps = dce.Install(nodes);
-    apps.Start(Seconds (1));
-    /*
+
     dce.SetBinary("mpdd");
     dce.ResetArguments();
     dce.ResetEnvironment();
+    dce.AddArgument("-C");
+    dce.AddArgument("/etc/mpd/mpdd.conf");
+    dce.IgnoreInterface("lo");
+    dce.DisseminationInterface("sim1");
+    /*2 creates a simple config file, that doens't use libconfig. "node" is an ID.*/
+    apps = dce.Install(nodes, 2, "node");
 
-    apps = dce.Install(nodes);
+    apps.Start(Seconds (3));
 
-    apps.Start(Seconds (5));
-*/
     //csma.EnablePcapAll("mpdd-nested");
 
-    dce.SetBinary("ping");
-    dce.ResetArguments();
-    dce.ResetEnvironment();
-    dce.AddArgument ("192.168.1.1");
-
-    apps = dce.Install(nodes);
-
-    apps.Start(Seconds (10));
-
-    Simulator::Stop(Seconds(100.00));
+    Simulator::Stop(Seconds(10.00));
     Simulator::Run();
     Simulator::Destroy();
     return 0;
