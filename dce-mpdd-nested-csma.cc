@@ -75,7 +75,7 @@ int main(int argc, char *argv[])
 
     std::stringstream cmdStream;
 
-    uint32_t nDevices = 3;
+    uint32_t nDevices = 7;
     uint32_t treeStride = 2;
     uint32_t nInterfaces = 0;
     uint32_t nRootInterfaces = 2;
@@ -131,6 +131,7 @@ int main(int argc, char *argv[])
         }
 
         NetDeviceContainer devices = csma.Install(tempNodes);
+        csma.EnablePcapAll("mpdd-nested");
         apDevices.Add(devices.Get(0));
         for(int j = 1; j <= treeStride; j++){
             if((firstChild+j) >= nodes.GetN()) break;
@@ -141,6 +142,7 @@ int main(int argc, char *argv[])
     /****
     * Setup Addresses
     ****/
+    /*
     for (long i = 0; i < nodes.GetN(); i++) {
         std::stringstream tempAddress;
         std::stringstream cmd;
@@ -161,6 +163,30 @@ int main(int argc, char *argv[])
             address.Assign(staDev);
         }
     }
+    */
+    for (long i = 0; i < nodes.GetN(); i++) {
+      std::stringstream tempAddress;
+      std::stringstream cmd;
+      NetDeviceContainer apDev = apDevices.Get(i);
+
+      tempAddress << "192.168." << i+1 << ".0";
+
+      cmd << "addr add 192.168." << i+1 << ".1/24 broadcast 192.168." << i+1 << ".255 dev sim0";
+      std::cout << "NODE " << i+1 << ": " << cmd.str() << std::endl;
+
+      LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.1), cmd.str());
+
+      uint32_t firstChild = get_first_child(i, treeStride);
+      for(int j = 0; j < treeStride; j++){
+        if((firstChild+j-1) >= staDevices.GetN()) break;
+        cmd.str(std::string());
+        cmd << "addr add 192.168." << i+1 << "." << firstChild+j+1 << "/24 broadcast 192.168." << i+1 << ".255 dev sim1";
+        std::cout << "NODE " << firstChild+j+1 << ": " << cmd.str() << std::endl;
+        LinuxStackHelper::RunIp (nodes.Get (firstChild+j), Seconds (0.1), cmd.str());
+
+      }
+    }
+
 
     /**
     * Setup Routing
@@ -168,28 +194,26 @@ int main(int argc, char *argv[])
 
     for (long i = 0; i < nodes.GetN(); i++) {
         std::stringstream cmd;
-        int parent = get_parent(i, treeStride);
-        if(parent >= 0){
+        int parent = get_parent(i, treeStride) + 1;
+        if(parent >= 1) {
             cmd << "route add default via 192.168." << parent << ".1 dev sim0";
             //std::cout << "Adding to Node: " << i << std::endl;
             //std::cout << cmd.str() << std::endl;
             LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.1), cmd.str());
             cmd.str(std::string());
-            cmd << "route add 192.168." << i << ".0/24 dev sim1";
+            cmd << "route add 192.168." << i + 1 << ".0/24 dev sim1";
+            std::cout << "NODE " << i+1 << ": " << cmd.str() << std::endl;
             LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.1), cmd.str());
             cmd.str(std::string());
             cmd << "route add 192.168." << parent << ".0/24 dev sim0";
+            std::cout << "NODE " << i+1 << ": " << cmd.str() << std::endl;
             LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.1), cmd.str());
-
-            /*Setup NAT*/
-            cmd.str(std::string());
-            cmd << "route add 192.168." << parent << ".0/24 dev sim0";
         }
     }
 
     NetDeviceContainer gatewayDevices;
 
-    /*Add Gateway Routers*/
+    /*Add Gateway Routers
     PointToPointHelper pointToPoint;
     //pointToPoint.SetChannelAttribute ("DataRate", StringValue ("100Mbps"));
     //pointToPoint.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (30)));
@@ -200,27 +224,33 @@ int main(int argc, char *argv[])
       NetDeviceContainer dev = pointToPoint.Install(nodes.Get(0), routers.Get(i));
       Ipv4AddressHelper address;
       tempAddress << "172.16." << i << ".0";
-      cmd << "route add default via 172.16." << i << ".2 dev sim0" << std::endl;;
+      cmd << "route add default via 172.16." << i << ".2 dev sim" << i+1;
+
+      std::cout << "NODE " << 1 << ": " << cmd.str() << std::endl;
+
+
       LinuxStackHelper::RunIp (nodes.Get(0), Seconds (1), cmd.str());
 
       address.SetBase(tempAddress.str().c_str(), "255.255.255.0");
       address.Assign(dev);
       gatewayDevices.Add(dev);
     }
-
+    */
     /****
     *
     * Setup the MPDD
     *
     ****/
-
     //Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
     //LinuxStackHelper::PopulateRoutingTables ();
+    //LinuxStackHelper::SysctlSet(nodes, "net.ivp6.conf.all", "0");
 
     dce.SetStackSize(1 << 20);
     appHelper.SetStackSize(1 << 20);
 
     stack.SysctlSet(nodes, ".net.ipv4.conf.all.forwarding", "1");
+    stack.SysctlSet(nodes, ".net.ipv6.conf.all.disable_ipv6", "1");
+
 
     for (long i = 0; i < nodes.GetN(); i++) {
         LinuxStackHelper::RunIp (nodes.Get(i), Seconds (2), "route show");
@@ -228,11 +258,28 @@ int main(int argc, char *argv[])
         LinuxStackHelper::RunIp (nodes.Get(i), Seconds (2), "addr");
     }
 
-    /**/
+    /*
     appHelper.SetBinary ("xtables-multi");
     appHelper.ResetArguments ();
     appHelper.ResetEnvironment ();
     appHelper.AddArgument ("iptables");
+    appHelper.AddArgument ("-w");
+    appHelper.AddArgument ("-t");
+    appHelper.AddArgument ("nat");
+    appHelper.AddArgument ("-A");
+    appHelper.AddArgument ("POSTROUTING");
+    appHelper.AddArgument ("-o");
+    appHelper.AddArgument ("sim1");
+    appHelper.AddArgument ("-j");
+    appHelper.AddArgument ("MASQUERADE");
+    confapps = appHelper.Install(nodes);
+    confapps.Start(Seconds (0.5));
+
+    appHelper.SetBinary ("xtables-multi");
+    appHelper.ResetArguments ();
+    appHelper.ResetEnvironment ();
+    appHelper.AddArgument ("iptables");
+    appHelper.AddArgument ("-w");
     appHelper.AddArgument ("-t");
     appHelper.AddArgument ("nat");
     appHelper.AddArgument ("-A");
@@ -244,6 +291,22 @@ int main(int argc, char *argv[])
     confapps = appHelper.Install(nodes);
     confapps.Start(Seconds (0.5));
 
+    appHelper.SetBinary ("xtables-multi");
+    appHelper.ResetArguments ();
+    appHelper.ResetEnvironment ();
+    appHelper.AddArgument ("iptables");
+    appHelper.AddArgument ("-w");
+    appHelper.AddArgument ("-t");
+    appHelper.AddArgument ("nat");
+    appHelper.AddArgument ("-A");
+    appHelper.AddArgument ("POSTROUTING");
+    appHelper.AddArgument ("-o");
+    appHelper.AddArgument ("sim2");
+    appHelper.AddArgument ("-j");
+    appHelper.AddArgument ("MASQUERADE");
+    confapps = appHelper.Install(nodes);
+    confapps.Start(Seconds (0.5));
+    */
 
     dce.SetBinary("mpdd");
     dce.ResetArguments();
@@ -251,13 +314,14 @@ int main(int argc, char *argv[])
     dce.AddArgument("-C");
     dce.AddArgument("/etc/mpd/mpdd.conf");
     dce.IgnoreInterface("lo");
-    dce.DisseminationInterface("sim1");
+    dce.IgnoreInterface("sit0");
+    dce.IgnoreInterface("ip6tnl0");
+    dce.DisseminationInterface("sim0");
     /*arg - 2 creates a simple config file, that doens't use libconfig. "node" is an ID.*/
     apps = dce.Install(nodes, 2, "node");
 
     apps.Start(Seconds (3));
 
-    csma.EnablePcapAll("mpdd-nested");
 
     Simulator::Stop(Seconds(10.00));
     Simulator::Run();
