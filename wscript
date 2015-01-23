@@ -32,3 +32,19 @@ def build(bld):
           target='bin/dce-mpdd-nlcache-test',
           source=['dce-mpdd-nlcache-test.cc'],
           )
+    bld.build_a_script('dce', needed = ['core',
+                                'internet',
+                                'dce',
+                                'point-to-point', 'csma',
+                                'mobility', 'wifi', 'applications'],
+          target='bin/dce-mpdd-nlcache-test-iff',
+          source=['dce-mpdd-nlcache-test-iff.cc'],
+          )
+    bld.build_a_script('dce', needed = ['core',
+                                'internet',
+                                'dce',
+                                'point-to-point', 'csma',
+                                'mobility', 'wifi', 'applications', 'visualizer'],
+          target='bin/dce-broadcast-test',
+          source=['dce-broadcast-test.cc'],
+          )

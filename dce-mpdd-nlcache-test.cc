@@ -22,13 +22,14 @@ int main(int argc, char *argv[])
     dceManager.Install (nodes);
 
     dce.SetStackSize (1 << 20);
-    dce.SetBinary ("simple_link_monitor");
+    dce.SetBinary ("test_libmnl");
     dce.ResetArguments ();
     dce.ResetEnvironment ();
     apps = dce.Install(nodes);
     apps.Start (Seconds (5));
 
-    Simulator::Stop (Seconds (300.00));
+
+    Simulator::Stop (Seconds (30.00));
     Simulator::Run ();
     Simulator::Destroy ();
     return 0;

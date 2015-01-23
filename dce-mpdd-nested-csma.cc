@@ -88,9 +88,11 @@ int main(int argc, char *argv[])
 
     cmd.Parse(argc, argv);
 
+    //GlobalValue::Bind ("SimulatorImplementationType", StringValue ("ns3::RealtimeSimulatorImpl"));
+
     CsmaHelper csma;
     csma.SetChannelAttribute ("DataRate", StringValue ("10Mbps"));
-    csma.SetChannelAttribute ("Delay", TimeValue (NanoSeconds (10000000)));
+    csma.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (10)));
 
 
     NodeContainer nodes, routers, allHosts;
@@ -109,6 +111,9 @@ int main(int argc, char *argv[])
 #ifdef KERNEL_STACK
     dceManager.SetNetworkStack ("ns3::LinuxSocketFdFactory", "Library", StringValue ("liblinux.so"));
     dceManager.Install (allHosts);
+
+    Ipv4DceRoutingHelper ipv4RoutingHelper;
+    stack.SetRoutingHelper (ipv4RoutingHelper);
     stack.Install (allHosts);
 #else
     NS_LOG_ERROR ("Linux kernel stack for DCE is not available. build with dce-linux module.");
@@ -131,7 +136,6 @@ int main(int argc, char *argv[])
         }
 
         NetDeviceContainer devices = csma.Install(tempNodes);
-        csma.EnablePcapAll("mpdd-nested");
         apDevices.Add(devices.Get(0));
         for(int j = 1; j <= treeStride; j++){
             if((firstChild+j) >= nodes.GetN()) break;
@@ -142,58 +146,36 @@ int main(int argc, char *argv[])
     /****
     * Setup Addresses
     ****/
-    /*
-    for (int i = 0; i < nodes.GetN(); i++) {
-        std::stringstream tempAddress;
-        std::stringstream cmd;
-        Ipv4AddressHelper address;
-        NetDeviceContainer apDev = apDevices.Get(i);
-        tempAddress << "192.168." << i << ".0";
-        address.SetBase(tempAddress.str().c_str(), "255.255.255.0");
-        address.Assign(apDev);
-
-        cmd << "link set dev sim0 up";
-        LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.1), cmd.str());
-
-        uint32_t firstChild = get_first_child(i, treeStride);
-
-        for(int j = 0; j < treeStride; j++){
-            if((firstChild+j-1) >= staDevices.GetN()) break;
-            NetDeviceContainer staDev = staDevices.Get(firstChild+j-1);
-            address.Assign(staDev);
-        }
-    }
-    */
 
     for (int i = 0; i < nodes.GetN(); i++) {
       std::stringstream cmd;
-      NetDeviceContainer apDev = apDevices.Get(i);
+
       if(i == 0){
-        cmd << "link set dev sim2 up";
-        LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.1), cmd.str());
+        cmd << "link set dev sim0 up";
+        LinuxStackHelper::RunIp (nodes.Get (i), Seconds (1), cmd.str());
         cmd.str(std::string());
-        cmd << "addr add 192.168." << i + 1 << ".1/24 broadcast 192.168." << i + 1 << ".255 dev sim2";
+        cmd << "addr add 10.1." << i + 1 << ".1/24 broadcast 10.1." << i + 1 << ".255 dev sim0";
       } else {
         cmd << "link set dev sim1 up";
-        LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.1), cmd.str());
+        LinuxStackHelper::RunIp (nodes.Get (i), Seconds (1), cmd.str());
         cmd.str(std::string());
-        cmd << "addr add 192.168." << i + 1 << ".1/24 broadcast 192.168." << i + 1 << ".255 dev sim1";
+        cmd << "addr add 10.1." << i + 1 << ".1/24 broadcast 10.1." << i + 1 << ".255 dev sim1";
       }
       std::cout << "NODE " << i + 1 << ": " << cmd.str() << std::endl;
 
-      LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.2), cmd.str());
+      LinuxStackHelper::RunIp (nodes.Get (i), Seconds (2), cmd.str());
 
       uint32_t firstChild = get_first_child(i, treeStride);
       for(int j = 0; j < treeStride; j++){
         if((firstChild + j - 1) >= staDevices.GetN()) break;
         cmd.str(std::string());
         cmd << "link set dev sim0 up";
-        LinuxStackHelper::RunIp (nodes.Get (firstChild+j), Seconds (0.3), cmd.str());
+        LinuxStackHelper::RunIp (nodes.Get (firstChild+j), Seconds (1), cmd.str());
 
         cmd.str(std::string());
-        cmd << "addr add 192.168." << i+1 << "." << firstChild + j + 1 << "/24 broadcast 192.168." << i + 1 << ".255 dev sim0";
+        cmd << "addr add 10.1." << i+1 << "." << firstChild + j + 1 << "/24 broadcast 10.1." << i + 1 << ".255 dev sim0";
         std::cout << "NODE " << firstChild + j + 1 << ": " << cmd.str() << std::endl;
-        LinuxStackHelper::RunIp (nodes.Get (firstChild+j), Seconds (0.4), cmd.str());
+        LinuxStackHelper::RunIp (nodes.Get (firstChild+j), Seconds (2), cmd.str());
       }
     }
 
@@ -206,21 +188,22 @@ int main(int argc, char *argv[])
         std::stringstream cmd;
         int parent = get_parent(i, treeStride) + 1;
         if(parent >= 1) {
-            cmd << "route add default via 192.168." << parent << ".1 dev sim0";
+            //cmd << "route add default via 10.1." << parent << ".1 dev sim0";
             //std::cout << "Adding to Node: " << i << std::endl;
             //std::cout << cmd.str() << std::endl;
-            LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.5), cmd.str());
-            cmd.str(std::string());
-            cmd << "route add 192.168." << i + 1 << ".0/24 dev sim1";
+            //LinuxStackHelper::RunIp (nodes.Get (i), Seconds (4), cmd.str());
+            //cmd.str(std::string());
+            cmd << "route add 10.1." << i + 1 << ".0/24 dev sim1";
             std::cout << "NODE " << i + 1 << ": " << cmd.str() << std::endl;
-            LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.5), cmd.str());
+            LinuxStackHelper::RunIp (nodes.Get (i), Seconds (3), cmd.str());
             cmd.str(std::string());
-            cmd << "route add 192.168." << parent << ".0/24 dev sim0";
+            cmd << "route add 10.1." << parent << ".0/24 dev sim0";
             std::cout << "NODE " << i + 1 << ": " << cmd.str() << std::endl;
-            LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.5), cmd.str());
+            LinuxStackHelper::RunIp (nodes.Get (i), Seconds (3), cmd.str());
         } else {
-          cmd << "route add 192.168.1.0/24 dev sim2";
-          LinuxStackHelper::RunIp (nodes.Get (i), Seconds (0.5), cmd.str());
+          cmd << "route add 10.1.1.0/24 dev sim0";
+          std::cout << "NODE " << i + 1 << ": " << cmd.str() << std::endl;
+          LinuxStackHelper::RunIp (nodes.Get (i), Seconds (3), cmd.str());
         }
     }
 
@@ -235,17 +218,38 @@ int main(int argc, char *argv[])
       std::stringstream tempAddress;
 
       NetDeviceContainer dev = pointToPoint.Install(nodes.Get(0), routers.Get(i));
-      Ipv4AddressHelper address;
-      tempAddress << "172.16." << i + 1 << ".0";
-      cmd << "route add default via 172.16." << i + 1 << ".2 dev sim" << i << " metric " << i + 1;
+
+      cmd << "link set dev sim" << i + 1 << " up";
+      LinuxStackHelper::RunIp (nodes.Get (0), Seconds (1), cmd.str());
+
+
+      cmd.str(std::string());
+      cmd << "link set dev sim0 up";
+      LinuxStackHelper::RunIp (routers.Get(i), Seconds (1), cmd.str());
+
+      cmd.str(std::string());
+      cmd << "addr add 192.168." << i + 1 << ".1/24 broadcast 192.168." << i + 1 << ".255 dev sim" << i + 1;
+      std::cout << "NODE 1: " << cmd.str() << std::endl;
+      LinuxStackHelper::RunIp (nodes.Get(0), Seconds (2), cmd.str());
+
+
+      cmd.str(std::string());
+      cmd << "addr add 192.168." << i + 1 << ".2/24 broadcast 192.168." << i + 1 << ".255 dev sim0";
+      std::cout << "Router " << i + 1 << ": " << cmd.str() << std::endl;
+      LinuxStackHelper::RunIp (routers.Get(i), Seconds (2), cmd.str());
+
+
+
+      cmd.str(std::string());
+      tempAddress << "192.168." << i + 1 << ".0";
+      cmd << "route add default via 192.168." << i + 1 << ".2 dev sim" << i + 1 << " metric " << i + 1;
 
       std::cout << "NODE " << 1 << ": " << cmd.str() << std::endl;
 
-      address.SetBase(tempAddress.str().c_str(), "255.255.255.0");
-      address.Assign(dev);
+
       gatewayDevices.Add(dev);
 
-      LinuxStackHelper::RunIp (nodes.Get(0), Seconds (0.6), cmd.str());
+      LinuxStackHelper::RunIp (nodes.Get(0), Seconds (10), cmd.str());
 
     }
 
@@ -260,9 +264,12 @@ int main(int argc, char *argv[])
 
 
     for (int i = 0; i < allHosts.GetN(); i++) {
-        LinuxStackHelper::RunIp (allHosts.Get(i), Seconds (1), "route show");
+        LinuxStackHelper::RunIp (allHosts.Get(i), Seconds (4), "route show table main");
+        LinuxStackHelper::RunIp (allHosts.Get(i), Seconds (4), "route show table local");
 
-        LinuxStackHelper::RunIp (allHosts.Get(i), Seconds (1), "addr show");
+        LinuxStackHelper::RunIp (allHosts.Get(i), Seconds (4), "rule show");
+
+        LinuxStackHelper::RunIp (allHosts.Get(i), Seconds (4), "addr show");
     }
 
     /*
@@ -314,52 +321,48 @@ int main(int argc, char *argv[])
     confapps = appHelper.Install(nodes);
     confapps.Start(Seconds (0.5));
     */
-
-
     /****
     *
     * Setup the MPDD
     *
     ****/
-    /*
-    for(int i = 0; i < nodes.GetN(); i++){
-      ApplicationContainer tempAppContainer;
-      dce.SetBinary("mpdd");
-      dce.ResetArguments();
-      dce.ResetEnvironment();
-      dce.AddArgument("-C");
-      dce.AddArgument("/etc/mpd/mpdd.conf");
-      dce.IgnoreInterface("lo");
-      dce.IgnoreInterface("sit0");
-      dce.IgnoreInterface("ip6tnl0");
-      if(i = 0){
-        dce.DisseminationInterface("sim2");
-      } else {
-        dce.DisseminationInterface("sim0");
 
-      }
-      tempAppContainer =
-      apps.Add(tempAppContainer);
-    }
-    */
     /*arg - 2 creates a simple config file, that doens't use libconfig. "node" is an ID.*/
-    dce.SetBinary("mpdd");
-    dce.ResetArguments();
-    dce.ResetEnvironment();
-    dce.AddArgument("-C");
-    dce.AddArgument("/etc/mpd/mpdd.conf");
-    dce.IgnoreInterface("lo");
-    dce.IgnoreInterface("sit0");
-    dce.IgnoreInterface("ip6tnl0");
-    dce.DisseminationInterface("sim2");
-    apps = dce.Install(nodes, 2, "node");
+    for (int i = 0; i < nodes.GetN(); i++) {
+        dce.SetBinary("mpdd");
+        dce.ResetArguments();
+        dce.ResetEnvironment();
+
+
+        dce.AddArgument("-C");
+        dce.AddArgument("/etc/mpd/mpdd.conf");
+        dce.IgnoreInterface("lo");
+        dce.IgnoreInterface("sit0");
+        dce.IgnoreInterface("ip6tnl0");
+
+        if (i == 0){
+            dce.DisseminationInterface("sim0");
+            std::cout << "Set diss to sim0\n";
+        } else {
+            dce.DisseminationInterface("sim1");
+            std::cout << "Set diss to sim1\n";
+        }
+
+
+        apps = dce.InstallInNode(nodes.Get(i), 2, "node");
+        std::cout << "Installed in " << i << "\n";
+    }
+
     apps.Start(Seconds (5));
+    std::cout << "DONE\n";
 
     csma.EnablePcapAll("dce-mpdd-nested-csma", true);
+
     pointToPoint.EnablePcapAll("dce-mpdd-nested-ptp", true);
 
-    Simulator::Stop(Seconds(30.00));
+    Simulator::Stop(Seconds(nodes.GetN()+10));
     Simulator::Run();
     Simulator::Destroy();
+
     return 0;
 }
