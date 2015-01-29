@@ -150,6 +150,8 @@ int main(int argc, char *argv[])
     for (int i = 0; i < nodes.GetN(); i++) {
       std::stringstream cmd;
 
+      uint32_t firstChild = get_first_child(i, treeStride);
+
       if(i == 0){
         cmd << "link set dev sim0 up";
         LinuxStackHelper::RunIp (nodes.Get (i), Seconds (1), cmd.str());
@@ -165,15 +167,19 @@ int main(int argc, char *argv[])
 
       LinuxStackHelper::RunIp (nodes.Get (i), Seconds (2), cmd.str());
 
-      uint32_t firstChild = get_first_child(i, treeStride);
+      std::cout << "FirstChild: " << firstChild << "\n";
       for(int j = 0; j < treeStride; j++){
-        if((firstChild + j - 1) >= staDevices.GetN()) break;
+        if((firstChild + j) >= nodes.GetN()){
+            std::cout << "FirstChild: " << firstChild << " Nodes: " << nodes.GetN() << "\n";
+            break;
+        }
+
         cmd.str(std::string());
         cmd << "link set dev sim0 up";
         LinuxStackHelper::RunIp (nodes.Get (firstChild+j), Seconds (1), cmd.str());
 
         cmd.str(std::string());
-        cmd << "addr add 10.1." << i+1 << "." << firstChild + j + 1 << "/24 broadcast 10.1." << i + 1 << ".255 dev sim0";
+        cmd << "addr add 10.1." << i + 1 << "." << firstChild + j + 1 << "/24 broadcast 10.1." << i + 1 << ".255 dev sim0";
         std::cout << "NODE " << firstChild + j + 1 << ": " << cmd.str() << std::endl;
         LinuxStackHelper::RunIp (nodes.Get (firstChild+j), Seconds (2), cmd.str());
       }
@@ -360,7 +366,7 @@ int main(int argc, char *argv[])
 
     pointToPoint.EnablePcapAll("dce-mpdd-nested-ptp", true);
 
-    Simulator::Stop(Seconds(nodes.GetN()+10));
+    Simulator::Stop(Seconds(15));
     Simulator::Run();
     Simulator::Destroy();
 
