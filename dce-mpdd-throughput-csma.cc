@@ -22,10 +22,7 @@
 #include <string>
 #include <sstream>
 
-
 using namespace ns3;
-
-
 
 uint32_t
 get_height(uint32_t stride, uint32_t nodes)
@@ -62,6 +59,9 @@ is_leaf(uint32_t stride, uint32_t nodes, uint32_t nodeIdx)
     return (nodes-leaves) < nodeIdx ? 1 : 0;
 }
 
+#define DIST_GATEWAYS_YES 1
+#define DIST_GATEWAYS_NO 0
+
 int main(int argc, char *argv[])
 {
     DceApplicationHelper appHelper;
@@ -72,31 +72,28 @@ int main(int argc, char *argv[])
     LinuxStackHelper stack;
     NetDeviceContainer apDevices;
     NetDeviceContainer staDevices;
-
+    NodeContainer nodes, routers, allHosts;
     std::stringstream cmdStream;
 
     uint32_t nDevices = 7;
     uint32_t treeStride = 2;
     uint32_t nInterfaces = 0;
     uint32_t nRootInterfaces = 2;
+    uint32_t distributeGateways = 0;
 
     CommandLine cmd;
     cmd.AddValue("devices", "Number of wifi devices", nDevices);
     cmd.AddValue("stride", "Tree Stride", treeStride);
     cmd.AddValue("interfaces",
         "Number of gateway interfaces for non root devices", nInterfaces);
-    cmd.AddValue("root_interfaces",
-        "Number of gateway interfaces for root device", nRootInterf);
+    cmd.AddValue("distribute_gateways",
+        "Number of gateway interfaces for root device", distributeGateways);
 
     cmd.Parse(argc, argv);
-
-    //GlobalValue::Bind ("SimulatorImplementationType", StringValue ("ns3::RealtimeSimulatorImpl"));
 
     CsmaHelper csma;
     csma.SetChannelAttribute ("DataRate", StringValue ("10Mbps"));
     csma.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (10)));
-
-    NodeContainer nodes, routers, allHosts;
 
     nodes.Create(nDevices);
     routers.Create(nRootInterfaces);
@@ -149,7 +146,6 @@ int main(int argc, char *argv[])
     /****
     * Setup Addresses
     ****/
-
     for (int i = 0; i < nodes.GetN(); i++) {
         std::stringstream cmd;
 
@@ -197,11 +193,6 @@ int main(int argc, char *argv[])
         std::stringstream cmd;
         int parent = get_parent(i, treeStride) + 1;
         if(parent >= 1) {
-            //cmd << "route add default via 10.1." << parent << ".1 dev sim0";
-            //std::cout << "Adding to Node: " << i << std::endl;
-            //std::cout << cmd.str() << std::endl;
-            //LinuxStackHelper::RunIp (nodes.Get (i), Seconds (4), cmd.str());
-            //cmd.str(std::string());
             cmd << "route add 10.1." << i + 1 << ".0/24 dev sim1";
             std::cout << "NODE " << i + 1 << ": " << cmd.str() << std::endl;
             LinuxStackHelper::RunIp (nodes.Get (i), Seconds (3), cmd.str());
@@ -220,8 +211,7 @@ int main(int argc, char *argv[])
 
     /*Add Gateway Routers*/
     PointToPointHelper pointToPoint;
-    //pointToPoint.SetChannelAttribute ("DataRate", StringValue ("100Mbps"));
-    //pointToPoint.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (30)));
+
     for (int i = 0; i < routers.GetN(); i++){
         std::stringstream cmd;
         std::stringstream tempAddress;
@@ -245,11 +235,13 @@ int main(int argc, char *argv[])
         std::cout << "Router " << i + 1 << ": " << cmd.str() << std::endl;
         LinuxStackHelper::RunIp (routers.Get(i), Seconds (2), cmd.str());
 
+
         cmd.str(std::string());
         tempAddress << "192.168." << i + 1 << ".0";
         cmd << "route add default via 192.168." << i + 1 << ".2 dev sim" << i + 1 << " metric " << i + 1;
 
         std::cout << "NODE " << 1 << ": " << cmd.str() << std::endl;
+
 
         gatewayDevices.Add(dev);
 
@@ -266,10 +258,13 @@ int main(int argc, char *argv[])
     stack.SysctlSet(nodes, ".net.ipv4.conf.all.forwarding", "1");
     stack.SysctlSet(nodes, ".net.ipv6.conf.all.disable_ipv6", "1");
 
+
     for (int i = 0; i < allHosts.GetN(); i++) {
         LinuxStackHelper::RunIp (allHosts.Get(i), Seconds (4), "route show table main");
         LinuxStackHelper::RunIp (allHosts.Get(i), Seconds (4), "route show table local");
+
         LinuxStackHelper::RunIp (allHosts.Get(i), Seconds (4), "rule show");
+
         LinuxStackHelper::RunIp (allHosts.Get(i), Seconds (4), "addr show");
     }
 
@@ -334,6 +329,7 @@ int main(int argc, char *argv[])
         dce.ResetArguments();
         dce.ResetEnvironment();
 
+
         dce.AddArgument("-C");
         dce.AddArgument("/etc/mpd/mpdd.conf");
         dce.IgnoreInterface("lo");
@@ -347,6 +343,7 @@ int main(int argc, char *argv[])
             dce.DisseminationInterface("sim1");
             std::cout << "Set diss to sim1\n";
         }
+
 
         apps = dce.InstallInNode(nodes.Get(i), 2, "node");
         std::cout << "Installed in " << i << "\n";

@@ -22,10 +22,7 @@
 #include <string>
 #include <sstream>
 
-
 using namespace ns3;
-
-
 
 uint32_t
 get_height(uint32_t stride, uint32_t nodes)
@@ -62,8 +59,111 @@ is_leaf(uint32_t stride, uint32_t nodes, uint32_t nodeIdx)
     return (nodes-leaves) < nodeIdx ? 1 : 0;
 }
 
+struct ModelNode;
+
+struct ModelNode {
+    float degMin;
+    float degMax;
+    float degInc;
+    float degree;
+    float x;
+    float y;
+};
+
+#define POLAR_TOTAL 360.00f
+#define POLAR_MAX 180.00f
+#define VECTOR_LENGTH 10.00f
+
+/**
+x = r cos (theta),
+y = r sin (theta),
+**/
+#define PI 3.141592653589793f
+#define RAD(x) x * PI / 180.00f
+#define DO_ROUND 0
+#if DO_ROUND
+#define ROUND(d) floor(d+0.5)
+#else
+#define ROUND(d) d
+#endif
+int build_model(int nDevices, int nStride, Ptr<ListPositionAllocator> positionAlloc)
+{
+    int j = 0;
+    float initX = 0.00;
+    float initY = 0.00;
+    float degree_between = nStride/POLAR_TOTAL;
+    float start_degree = 0;
+    float vectorMulti = 5.00;
+    float vectorLength = (get_height(nStride, nDevices)+1)*vectorMulti;
+    std::vector<struct ModelNode> nodeVector;
+
+    for (long i = 0; i < nDevices; i++) {
+        if(i == 0){
+            struct ModelNode n;
+            n.x = initX;
+            n.y = initY;
+            n.degMax = POLAR_TOTAL;
+            n.degMin = 0;
+            n.degree = 0;
+            n.degInc = POLAR_TOTAL / (float)(nStride <= nDevices ? nStride : nDevices);
+            std::cout << "DEG INC " << n.degInc << "\n";
+
+            nodeVector.push_back(n);
+        } else {
+            struct ModelNode n;
+            struct ModelNode pNode;
+
+            int p = get_parent(i, nStride);
+            std::cout << "NODE: " << i << "\n";
+
+            int c = get_first_child(p, nStride);
+            int child_index = i - c;
+            std::cout << "\tChild Index: " << child_index << "\n";
+
+            int l = c+nStride;
+
+            pNode = nodeVector.at(p);
+
+            std::cout << "\tParent Deg Min: " << pNode.degMin << "\n";
+            std::cout << "\tParent Deg Inc: " << pNode.degInc << "\n";
+
+            float degree = pNode.degMin + (pNode.degInc * child_index);
+            std::cout << "\tDegree: " << degree << "\n";
+
+            n.x = ROUND(pNode.x + (vectorLength*cos(RAD(degree))));
+            n.y = ROUND(pNode.y + (vectorLength*sin(RAD(degree))));
+
+            std::cout << "\tSTAR(" << n.x << ", " << n.y << ")\n";
+
+            n.degMax = degree+(POLAR_MAX/2);
+            n.degMin = degree-(POLAR_MAX/2);
+            n.degInc = POLAR_MAX/(nStride);
+
+            //float tmp = n.degMax - (n.degMin + (nStride*n.degInc));
+            //n.degMin += tmp/2;
+
+            nodeVector.push_back(n);
+
+
+        }
+        if((i % nStride) == 0) {
+            vectorLength = vectorLength - (vectorLength  * 0.095);
+            if(vectorLength < vectorMulti) vectorLength = vectorMulti;
+        }
+    }
+
+    for(std::vector<struct ModelNode>::size_type i = 0; i != nodeVector.size(); i++) {
+        std::cout << "\tSTAR(" << nodeVector[i].x << ", " << nodeVector[i].y << ")\n";
+        positionAlloc->Add (ns3::Vector (nodeVector[i].x,  nodeVector[i].y, 0.0));
+    }
+
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
+    std::string wifiBaseName = "WiFi";
+
     DceApplicationHelper appHelper;
     MpddHelper dce;
     DceManagerHelper dceManager;
@@ -72,6 +172,14 @@ int main(int argc, char *argv[])
     LinuxStackHelper stack;
     NetDeviceContainer apDevices;
     NetDeviceContainer staDevices;
+    Ptr<ListPositionAllocator> positionAlloc = CreateObject<ListPositionAllocator> ();
+    std::vector< Ptr<YansWifiChannel> > channels;
+
+    MobilityHelper mobility;
+    WifiHelper wifi = WifiHelper::Default();
+    NqosWifiMacHelper wifiMac = NqosWifiMacHelper::Default();
+    YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default();
+    YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default();
 
     std::stringstream cmdStream;
 
@@ -83,18 +191,12 @@ int main(int argc, char *argv[])
     CommandLine cmd;
     cmd.AddValue("devices", "Number of wifi devices", nDevices);
     cmd.AddValue("stride", "Tree Stride", treeStride);
-    cmd.AddValue("interfaces",
-        "Number of gateway interfaces for non root devices", nInterfaces);
-    cmd.AddValue("root_interfaces",
-        "Number of gateway interfaces for root device", nRootInterf);
+    cmd.AddValue("interfaces", "Number of gateway interfaces for non root devices", nInterfaces);
+    cmd.AddValue("root_interfaces", "Number of gateway interfaces for root device", nRootInterfaces);
 
     cmd.Parse(argc, argv);
 
     //GlobalValue::Bind ("SimulatorImplementationType", StringValue ("ns3::RealtimeSimulatorImpl"));
-
-    CsmaHelper csma;
-    csma.SetChannelAttribute ("DataRate", StringValue ("10Mbps"));
-    csma.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (10)));
 
     NodeContainer nodes, routers, allHosts;
 
@@ -120,31 +222,60 @@ int main(int argc, char *argv[])
     return 0;
     #endif
 
+
+    build_model(nDevices, treeStride, positionAlloc);
+
     /****
     * Setup tree structure
     ****/
     for (int i = 0; i < nodes.GetN(); i++) {
-        NodeContainer tempNodes;
+        int k = 0;
+        std::stringstream tempWifiName;
+        tempWifiName << "" << wifiBaseName << "-" << i;
+        Ssid apSsid = Ssid(tempWifiName.str());
+
+        Ptr<YansWifiChannel> chan = wifiChannel.Create();
 
         uint32_t firstChild = get_first_child(i, treeStride);
-
-        tempNodes.Add(nodes.Get(i));
-
         for(int j = 0; j < treeStride; j++){
             if((firstChild+j) >= nodes.GetN()) break;
-            tempNodes.Add(nodes.Get(firstChild+j));
+            k++;
         }
 
-        if(tempNodes.GetN() > 1){
-            NetDeviceContainer devices = csma.Install(tempNodes);
-            apDevices.Add(devices.Get(0));
+        /*Avoid adding WiFi AP's if there won't be any nodes connecting*/
+        if(k > 0){
+            wifiPhy.SetChannel(chan);
+            channels.push_back(chan);
 
-            for(int j = 1; j <= treeStride; j++){
-                if((firstChild+j) >= nodes.GetN()) break;
-                staDevices.Add(devices.Get(j));
-            }
+            wifiMac.SetType("ns3::ApWifiMac", "Ssid", SsidValue(apSsid));
+            NetDeviceContainer dev = wifi.Install(wifiPhy, wifiMac, nodes.Get(i));
+            apDevices.Add(dev);
+
+        }
+        /*Ignore root interfaces*/
+        if(i != 0){
+            uint32_t parent = get_parent(i, treeStride);
+            //std::cout << "Parent of " << i << " is " << parent << std::endl;
+            tempWifiName.str(std::string());
+            tempWifiName << "" << wifiBaseName << "-" << parent;
+            //std::cout << tempWifiName.str() << std::endl;
+
+            wifiPhy.SetChannel(channels.at(parent));
+            Ssid staSsid = Ssid(tempWifiName.str());
+            wifiMac.SetType("ns3::StaWifiMac",
+                             "Ssid", SsidValue(staSsid),
+                             "ActiveProbing", BooleanValue(false));
+            NetDeviceContainer dev = wifi.Install(wifiPhy, wifiMac, nodes.Get(i));
+            staDevices.Add(dev);
         }
     }
+
+
+
+    mobility.SetPositionAllocator (positionAlloc);
+
+    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+    mobility.Install(nodes);
 
     /****
     * Setup Addresses
@@ -155,17 +286,11 @@ int main(int argc, char *argv[])
 
         uint32_t firstChild = get_first_child(i, treeStride);
 
-        if(i == 0){
-            cmd << "link set dev sim0 up";
-            LinuxStackHelper::RunIp (nodes.Get (i), Seconds (1), cmd.str());
-            cmd.str(std::string());
-            cmd << "addr add 10.1." << i + 1 << ".1/24 broadcast 10.1." << i + 1 << ".255 dev sim0";
-        } else {
-            cmd << "link set dev sim1 up";
-            LinuxStackHelper::RunIp (nodes.Get (i), Seconds (1), cmd.str());
-            cmd.str(std::string());
-            cmd << "addr add 10.1." << i + 1 << ".1/24 broadcast 10.1." << i + 1 << ".255 dev sim1";
-        }
+        cmd << "link set dev sim0 up";
+        LinuxStackHelper::RunIp (nodes.Get (i), Seconds (1), cmd.str());
+        cmd.str(std::string());
+        cmd << "addr add 10.1." << i + 1 << ".1/24 broadcast 10.1." << i + 1 << ".255 dev sim0";
+
         std::cout << "NODE " << i + 1 << ": " << cmd.str() << std::endl;
 
         LinuxStackHelper::RunIp (nodes.Get (i), Seconds (2), cmd.str());
@@ -178,11 +303,11 @@ int main(int argc, char *argv[])
             }
 
             cmd.str(std::string());
-            cmd << "link set dev sim0 up";
+            cmd << "link set dev sim1 up";
             LinuxStackHelper::RunIp (nodes.Get (firstChild+j), Seconds (1), cmd.str());
 
             cmd.str(std::string());
-            cmd << "addr add 10.1." << i + 1 << "." << firstChild + j + 1 << "/24 broadcast 10.1." << i + 1 << ".255 dev sim0";
+            cmd << "addr add 10.1." << i + 1 << "." << firstChild + j + 1 << "/24 broadcast 10.1." << i + 1 << ".255 dev sim1";
             std::cout << "NODE " << firstChild + j + 1 << ": " << cmd.str() << std::endl;
             LinuxStackHelper::RunIp (nodes.Get (firstChild+j), Seconds (2), cmd.str());
         }
@@ -231,6 +356,7 @@ int main(int argc, char *argv[])
         cmd << "link set dev sim" << i + 1 << " up";
         LinuxStackHelper::RunIp (nodes.Get (0), Seconds (1), cmd.str());
 
+
         cmd.str(std::string());
         cmd << "link set dev sim0 up";
         LinuxStackHelper::RunIp (routers.Get(i), Seconds (1), cmd.str());
@@ -240,16 +366,20 @@ int main(int argc, char *argv[])
         std::cout << "NODE 1: " << cmd.str() << std::endl;
         LinuxStackHelper::RunIp (nodes.Get(0), Seconds (2), cmd.str());
 
+
         cmd.str(std::string());
         cmd << "addr add 192.168." << i + 1 << ".2/24 broadcast 192.168." << i + 1 << ".255 dev sim0";
         std::cout << "Router " << i + 1 << ": " << cmd.str() << std::endl;
         LinuxStackHelper::RunIp (routers.Get(i), Seconds (2), cmd.str());
+
+
 
         cmd.str(std::string());
         tempAddress << "192.168." << i + 1 << ".0";
         cmd << "route add default via 192.168." << i + 1 << ".2 dev sim" << i + 1 << " metric " << i + 1;
 
         std::cout << "NODE " << 1 << ": " << cmd.str() << std::endl;
+
 
         gatewayDevices.Add(dev);
 
@@ -266,10 +396,13 @@ int main(int argc, char *argv[])
     stack.SysctlSet(nodes, ".net.ipv4.conf.all.forwarding", "1");
     stack.SysctlSet(nodes, ".net.ipv6.conf.all.disable_ipv6", "1");
 
+
     for (int i = 0; i < allHosts.GetN(); i++) {
         LinuxStackHelper::RunIp (allHosts.Get(i), Seconds (4), "route show table main");
         LinuxStackHelper::RunIp (allHosts.Get(i), Seconds (4), "route show table local");
+
         LinuxStackHelper::RunIp (allHosts.Get(i), Seconds (4), "rule show");
+
         LinuxStackHelper::RunIp (allHosts.Get(i), Seconds (4), "addr show");
     }
 
@@ -340,13 +473,8 @@ int main(int argc, char *argv[])
         dce.IgnoreInterface("sit0");
         dce.IgnoreInterface("ip6tnl0");
 
-        if (i == 0){
-            dce.DisseminationInterface("sim0");
-            std::cout << "Set diss to sim0\n";
-        } else {
-            dce.DisseminationInterface("sim1");
-            std::cout << "Set diss to sim1\n";
-        }
+        dce.DisseminationInterface("sim0");
+        std::cout << "Set diss to sim0\n";
 
         apps = dce.InstallInNode(nodes.Get(i), 2, "node");
         std::cout << "Installed in " << i << "\n";
@@ -355,7 +483,7 @@ int main(int argc, char *argv[])
     apps.Start(Seconds (5));
     std::cout << "DONE\n";
 
-    csma.EnablePcap("dce-mpdd-nested-csma", apDevices, true);
+    wifiPhy.EnablePcap("dce-mpdd-nested-wifi", apDevices, true);
 
     //pointToPoint.EnablePcapAll("dce-mpdd-nested-ptp", true);
 
