@@ -459,12 +459,6 @@ int main(int argc, char *argv[])
         LinuxStackHelper::RunIp (serverGw.Get(0), Seconds (3), cmd.str());
 
         cmd.str(std::string());
-        cmd << "route add 10.1." << i + 1 << ".0/24 dev sim" << sgwDevNumber << "";
-        LinuxStackHelper::RunIp (serverGw.Get(0), Seconds (3), cmd.str());
-
-        add_route(serverGw.Get(0), sgwDevNumber, nodeIdx, treeStride, nodes);
-
-        cmd.str(std::string());
         cmd << "route add 192.168." << i + 1 << ".0/24 dev sim" << sgwDevNumber << "";
         LinuxStackHelper::RunIp (serverGw.Get(0), Seconds (3), cmd.str());
 
@@ -580,6 +574,14 @@ int main(int argc, char *argv[])
     dce.SetStackSize(1 << 20);
     appHelper.SetStackSize(1 << 20);
 
+    for (int i = 0; i < allHosts.GetN()-2; i++) {
+        for (int j = 0; j < allHosts.Get(j)->GetNDevices(); j++){
+            std::stringstream nic;
+            nic << "sim" << j "";
+            start_nat(allHosts.Get(j), nic);
+        }
+    }
+
     for (int i = 0; i < allHosts.GetN(); i++) {
         stack.SysctlSet(allHosts.Get(i), ".net.ipv4.conf.all.forwarding", "1");
         stack.SysctlSet(allHosts.Get(i), ".net.ipv6.conf.all.disable_ipv6", "1");
@@ -618,16 +620,6 @@ int main(int argc, char *argv[])
     * Setup the MPDD
     *
     ****/
-
-    /*
-    #define MODE_TCP 0
-    #define MODE_TCP_LB 1
-    #define MODE_TCP_MPDP_LB 2
-    #define MODE_MPTCP 3
-    #define MODE_MPTCP_MPDP 4
-    */
-
-
 
     appHelper.SetBinary("iperf");
     appHelper.ResetArguments();
@@ -671,26 +663,6 @@ int main(int argc, char *argv[])
     LinuxStackHelper::SysctlGet (nodes.Get (nDevices-1), Seconds (5),".net.mptcp.mptcp_enabled", &PrintTcpFlags);
     LinuxStackHelper::SysctlGet (nodes.Get (nDevices-1), Seconds (5),".net.mptcp.mptcp_path_manager", &PrintTcpFlags);
     LinuxStackHelper::SysctlGet (nodes.Get (nDevices-1), Seconds (5),".net.ipv4.tcp_congestion_control", &PrintTcpFlags);
-
-    /*
-    appHelper.SetBinary("ping");
-    appHelper.ResetArguments();
-    appHelper.ResetEnvironment();
-    appHelper.AddArgument("-B");
-    appHelper.AddArgument("192.168.7.1");
-    appHelper.AddArgument("192.168.7.2");
-    apps = appHelper.InstallInNode(nodes.Get(nDevices-1));
-    apps.Start(Seconds (10));
-
-    appHelper.SetBinary("ping");
-    appHelper.ResetArguments();
-    appHelper.ResetEnvironment();
-    appHelper.AddArgument("-B");
-    appHelper.AddArgument("10.1.3.7");
-    appHelper.AddArgument("10.1.3.1");
-    apps = appHelper.InstallInNode(nodes.Get(nDevices-1));
-    apps.Start(Seconds (10));
-*/
 
     appHelper.SetBinary("ping");
     appHelper.ResetArguments();
