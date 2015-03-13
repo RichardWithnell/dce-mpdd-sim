@@ -1,0 +1,10 @@
+#!/bin/bash
+for i in `seq 0 $1`;
+do
+    rm -rf files-*
+    rm -rf *.pcap
+    ./waf --run "dce-mptcp-subflow64 --flows=$i --mode=1"
+    j=$((i+1))
+    scp -i /home/richard/zoostorm.rsa -P12100 -r files-*/var/ richard@194.80.39.119:/home/richard/thesis_results/subflow64/throughput/mptcp/$j/
+    scp -i /home/richard/zoostorm.rsa -P12100 *-0-*.pcap richard@194.80.39.119:/home/richard/thesis_results/subflow64/throughput/mptcp/$j/
+done

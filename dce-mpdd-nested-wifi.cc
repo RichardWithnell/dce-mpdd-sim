@@ -93,7 +93,7 @@ int build_model(int nDevices, int nStride, Ptr<ListPositionAllocator> positionAl
     float initY = 0.00;
     float degree_between = nStride/POLAR_TOTAL;
     float start_degree = 0;
-    float vectorMulti = 5.00;
+    float vectorMulti = 15.00;
     float vectorLength = (get_height(nStride, nDevices)+1)*vectorMulti;
     std::vector<struct ModelNode> nodeVector;
 
@@ -177,9 +177,11 @@ int main(int argc, char *argv[])
 
     MobilityHelper mobility;
     WifiHelper wifi = WifiHelper::Default();
+
     NqosWifiMacHelper wifiMac = NqosWifiMacHelper::Default();
     YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default();
     YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default();
+    Ptr<ErrorRateModel> error = CreateObject<YansErrorRateModel> ();
 
     std::stringstream cmdStream;
 
@@ -187,6 +189,7 @@ int main(int argc, char *argv[])
     uint32_t treeStride = 2;
     uint32_t nInterfaces = 0;
     uint32_t nRootInterfaces = 2;
+
 
     CommandLine cmd;
     cmd.AddValue("devices", "Number of wifi devices", nDevices);
@@ -204,6 +207,8 @@ int main(int argc, char *argv[])
     routers.Create(nRootInterfaces);
     allHosts.Add(nodes);
     allHosts.Add(routers);
+
+
 
     /**
     * Setup Linux Stack
@@ -224,6 +229,14 @@ int main(int argc, char *argv[])
 
 
     build_model(nDevices, treeStride, positionAlloc);
+
+    wifi.SetStandard (WIFI_PHY_STANDARD_80211g);
+    wifi.SetRemoteStationManager ("ns3::ArfWifiManager");
+
+    wifiPhy.SetErrorRateModel("ns3::YansErrorRateModel");
+
+    wifiChannel.SetPropagationDelay ("ns3::ConstantSpeedPropagationDelayModel");
+    //wifiChannel.AddPropagationLoss ("ns3::LogDistancePropagationLossModel");
 
     /****
     * Setup tree structure
@@ -247,7 +260,10 @@ int main(int argc, char *argv[])
             wifiPhy.SetChannel(chan);
             channels.push_back(chan);
 
-            wifiMac.SetType("ns3::ApWifiMac", "Ssid", SsidValue(apSsid));
+            wifiMac.SetType ("ns3::ApWifiMac",
+                "Ssid", SsidValue (apSsid),
+                "BeaconGeneration", BooleanValue (true),
+                "BeaconInterval", TimeValue(Seconds(0.1)));
             NetDeviceContainer dev = wifi.Install(wifiPhy, wifiMac, nodes.Get(i));
             apDevices.Add(dev);
 
@@ -262,6 +278,8 @@ int main(int argc, char *argv[])
 
             wifiPhy.SetChannel(channels.at(parent));
             Ssid staSsid = Ssid(tempWifiName.str());
+
+
             wifiMac.SetType("ns3::StaWifiMac",
                              "Ssid", SsidValue(staSsid),
                              "ActiveProbing", BooleanValue(false));
@@ -269,8 +287,6 @@ int main(int argc, char *argv[])
             staDevices.Add(dev);
         }
     }
-
-
 
     mobility.SetPositionAllocator (positionAlloc);
 
@@ -286,14 +302,16 @@ int main(int argc, char *argv[])
 
         uint32_t firstChild = get_first_child(i, treeStride);
 
-        cmd << "link set dev sim0 up";
-        LinuxStackHelper::RunIp (nodes.Get (i), Seconds (1), cmd.str());
-        cmd.str(std::string());
-        cmd << "addr add 10.1." << i + 1 << ".1/24 broadcast 10.1." << i + 1 << ".255 dev sim0";
+        if(firstChild + i <= nodes.GetN()){
+            cmd << "link set dev sim0 up";
+            LinuxStackHelper::RunIp (nodes.Get (i), Seconds (1), cmd.str());
+            cmd.str(std::string());
+            cmd << "addr add 10.1." << i + 1 << ".1/24 broadcast 10.1." << i + 1 << ".255 dev sim0";
 
-        std::cout << "NODE " << i + 1 << ": " << cmd.str() << std::endl;
+            std::cout << "NODE " << i + 1 << ": " << cmd.str() << std::endl;
 
-        LinuxStackHelper::RunIp (nodes.Get (i), Seconds (2), cmd.str());
+            LinuxStackHelper::RunIp (nodes.Get (i), Seconds (2), cmd.str());
+        }
 
         std::cout << "FirstChild: " << firstChild << "\n";
         for(int j = 0; j < treeStride; j++){
@@ -302,12 +320,19 @@ int main(int argc, char *argv[])
                 break;
             }
 
+            uint32_t fc = get_first_child(firstChild + j, treeStride);
+            std::string iff = "sim1";
+
+            if(fc + firstChild + j > nodes.GetN()){
+                iff = "sim0";
+            }
+
             cmd.str(std::string());
-            cmd << "link set dev sim1 up";
+            cmd << "link set dev " << iff << " up";
             LinuxStackHelper::RunIp (nodes.Get (firstChild+j), Seconds (1), cmd.str());
 
             cmd.str(std::string());
-            cmd << "addr add 10.1." << i + 1 << "." << firstChild + j + 1 << "/24 broadcast 10.1." << i + 1 << ".255 dev sim1";
+            cmd << "addr add 10.1." << i + 1 << "." << firstChild + j + 1 << "/24 broadcast 10.1." << i + 1 << ".255 dev " << iff << "";
             std::cout << "NODE " << firstChild + j + 1 << ": " << cmd.str() << std::endl;
             LinuxStackHelper::RunIp (nodes.Get (firstChild+j), Seconds (2), cmd.str());
         }
@@ -322,14 +347,13 @@ int main(int argc, char *argv[])
         std::stringstream cmd;
         int parent = get_parent(i, treeStride) + 1;
         if(parent >= 1) {
-            //cmd << "route add default via 10.1." << parent << ".1 dev sim0";
-            //std::cout << "Adding to Node: " << i << std::endl;
-            //std::cout << cmd.str() << std::endl;
-            //LinuxStackHelper::RunIp (nodes.Get (i), Seconds (4), cmd.str());
-            //cmd.str(std::string());
-            cmd << "route add 10.1." << i + 1 << ".0/24 dev sim1";
-            std::cout << "NODE " << i + 1 << ": " << cmd.str() << std::endl;
-            LinuxStackHelper::RunIp (nodes.Get (i), Seconds (3), cmd.str());
+            uint32_t firstChild = get_first_child(i, treeStride);
+            if(firstChild + i <= nodes.GetN()){
+                cmd.str(std::string());
+                cmd << "route add 10.1." << i + 1 << ".0/24 dev sim1";
+                std::cout << "NODE " << i + 1 << ": " << cmd.str() << std::endl;
+                LinuxStackHelper::RunIp (nodes.Get (i), Seconds (3), cmd.str());
+            }
             cmd.str(std::string());
             cmd << "route add 10.1." << parent << ".0/24 dev sim0";
             std::cout << "NODE " << i + 1 << ": " << cmd.str() << std::endl;
@@ -473,8 +497,14 @@ int main(int argc, char *argv[])
         dce.IgnoreInterface("sit0");
         dce.IgnoreInterface("ip6tnl0");
 
-        dce.DisseminationInterface("sim0");
-        std::cout << "Set diss to sim0\n";
+        uint32_t firstChild = get_first_child(i, treeStride);
+        if(firstChild + i <= nodes.GetN()){
+            dce.DisseminationInterface("sim0");
+            std::cout << "Set diss to sim0\n";
+        } else {
+            dce.DisseminationInterface("sim1");
+            std::cout << "Set diss to sim1\n";
+        }
 
         apps = dce.InstallInNode(nodes.Get(i), 2, "node");
         std::cout << "Installed in " << i << "\n";
@@ -483,8 +513,8 @@ int main(int argc, char *argv[])
     apps.Start(Seconds (5));
     std::cout << "DONE\n";
 
-    wifiPhy.EnablePcap("dce-mpdd-nested-wifi", apDevices, true);
-
+    wifiPhy.EnablePcap("dce-mpdd-nested-wifi-ap", apDevices, true);
+    wifiPhy.EnablePcap("dce-mpdd-nested-wifi-sta", staDevices, true);
     //pointToPoint.EnablePcapAll("dce-mpdd-nested-ptp", true);
 
     Simulator::Stop(Seconds(15));

@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
     cmd.AddValue("interfaces",
         "Number of gateway interfaces for non root devices", nInterfaces);
     cmd.AddValue("root_interfaces",
-        "Number of gateway interfaces for root device", nRootInterf);
+        "Number of gateway interfaces for root device", nRootInterfaces);
 
     cmd.Parse(argc, argv);
 
@@ -132,6 +132,7 @@ int main(int argc, char *argv[])
 
         for(int j = 0; j < treeStride; j++){
             if((firstChild+j) >= nodes.GetN()) break;
+            std::cout << "Node " << i << ": creating child " << j << "\n";
             tempNodes.Add(nodes.Get(firstChild+j));
         }
 

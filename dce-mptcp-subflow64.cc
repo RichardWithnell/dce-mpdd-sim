@@ -1,31 +1,3 @@
-/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
-
-//
-// Handoff scenario with Multipath TCPed iperf
-//
-// Simulation Topology:
-// Scenario: H1 has 3G
-//           during movement, MN keeps iperf session to SV.
-//
-//   <--------------------            ----------------------->
-//                  LTE               Ethernet
-//                   sim0 +----------+ sim1
-//                  +------|  LTE  R  |------+
-//                  |     +----------+      |
-//              +---+                       +-----+
-//          sim0|                                 |sim0
-//     +----+---+                                 +----+---+
-//     |   H1   |                                 |   H2   |
-//     +---+----+                                 +----+---+
-//          sim1|                                 |sim1
-//              +--+                        +-----+
-//                 | sim0 +----------+ sim1 |
-//                  +-----|  WiFi R  |------+
-//                        +----------+
-//                  WiFi              Ethernet
-//   <--------------------            ----------------------->
-//
-//
 // Adapted from NS3 examples/dce-mptcp-lte-wifi.cc
 //
 
@@ -48,7 +20,111 @@ using namespace ns3;
 #define MODE_TCP 0
 #define MODE_MPTCP_FM 1
 #define MODE_MPTCP_ND 2
+#define MODE_TCP_LB 3
 
+Ptr<NormalRandomVariable> createNormalRandomVariable(double mean, double variance, double bound){
+    Ptr<NormalRandomVariable> x = CreateObject<NormalRandomVariable> ();
+    x->SetAttribute ("Mean", DoubleValue (mean));
+    //x->SetAttribute ("Variance", DoubleValue (variance));
+    x->SetAttribute ("Bound", DoubleValue (bound));
+    return x;
+}
+
+/**
+Three HSPA
+MIN: 323.140
+MAX: 1510.172
+Average: 423.240
+Deviation: 224.801
+**/
+
+#define DEVICE_ONE_MEAN_RTT (423.240/2.00)
+#define DEVICE_ONE_VARIANCE_RTT ((224.801/2.00)*(224.801/2.00))
+#define DEVICE_ONE_BOUNDS_RTT (224.801/2.00)
+
+
+/**
+Three HSPA +
+Min: 43.600
+Max: 138.000
+Average: 61.939
+Deviation: 14.836
+**/
+
+#define DEVICE_TWO_MEAN_RTT (61.939/2.00)
+#define DEVICE_TWO_BOUNDS_RTT (14.836/2.00)
+#define DEVICE_TWO_VARIANCE_RTT ((14.836/2.00)*(14.836/2.00))
+
+#define DEVICE_THREE_MEAN_RTT 100
+#define DEVICE_THREE_VARIANCE_RTT 40
+#define DEVICE_THREE_BOUNDS_RTT 20
+
+#define DEVICE_FOUR_MEAN_RTT 100
+#define DEVICE_FOUR_VARIANCE_RTT 40
+#define DEVICE_FOUR_BOUNDS_RTT 20
+
+bool netDevCbFour(
+  Ptr<NetDevice> device,
+  Ptr<const Packet> pkt,
+  uint16_t  protocol,
+  const Address &from)
+{
+    static Ptr<NormalRandomVariable> x =
+        createNormalRandomVariable(DEVICE_ONE_MEAN_RTT,
+                                   DEVICE_ONE_VARIANCE_RTT,
+                                   DEVICE_ONE_BOUNDS_RTT);
+    Ptr<Node> node = device->GetNode ();
+    Simulator::Schedule(MilliSeconds(x->GetValue()), &Node::NonPromiscReceiveFromDevice, node, device, pkt, protocol, from);
+    return  true;
+}
+
+
+bool netDevCbThree(
+  Ptr<NetDevice> device,
+  Ptr<const Packet> pkt,
+  uint16_t  protocol,
+const Address &from)
+{
+    static Ptr<NormalRandomVariable> x =
+        createNormalRandomVariable(DEVICE_TWO_MEAN_RTT,
+                                   DEVICE_TWO_VARIANCE_RTT,
+                                   DEVICE_TWO_BOUNDS_RTT);
+    Ptr<Node> node = device->GetNode ();
+    Simulator::Schedule(MilliSeconds(x->GetValue()), &Node::NonPromiscReceiveFromDevice, node, device, pkt, protocol, from);
+    return  true;
+}
+
+
+bool netDevCbTwo(
+  Ptr<NetDevice> device,
+  Ptr<const Packet> pkt,
+  uint16_t  protocol,
+const Address &from)
+{
+    static Ptr<NormalRandomVariable> x =
+        createNormalRandomVariable(DEVICE_THREE_MEAN_RTT,
+                                   DEVICE_THREE_VARIANCE_RTT,
+                                   DEVICE_THREE_BOUNDS_RTT);
+    Ptr<Node> node = device->GetNode ();
+    Simulator::Schedule(MilliSeconds(x->GetValue()), &Node::NonPromiscReceiveFromDevice, node, device, pkt, protocol, from);
+    return  true;
+}
+
+
+bool netDevCbOne(
+  Ptr<NetDevice> device,
+  Ptr<const Packet> pkt,
+  uint16_t  protocol,
+  const Address &from)
+{
+    static Ptr<NormalRandomVariable> x =
+        createNormalRandomVariable(DEVICE_FOUR_MEAN_RTT,
+                                   DEVICE_FOUR_VARIANCE_RTT,
+                                   DEVICE_FOUR_BOUNDS_RTT);
+    Ptr<Node> node = device->GetNode ();
+    Simulator::Schedule(MilliSeconds(x->GetValue()), &Node::NonPromiscReceiveFromDevice, node, device, pkt, protocol, from);
+    return  true;
+}
 
 
 void setPos (Ptr<Node> n, int x, int y, int z)
@@ -68,20 +144,24 @@ PrintTcpFlags (std::string key, std::string value)
 int main (int argc, char *argv[])
 {
     double stopTime = 80.0;
-    std::string p2pdelay = "1ms";
+    std::string p2pdelay = "50ms";
     std::string iperfTime = "60";
     std::string ccalg = "reno";
     int flows = 1;
     int mode = MODE_TCP;
     int debug = 0;
+    int delay = 0;
+
+    Callback<bool, Ptr<NetDevice>, Ptr<const Packet>, uint16_t, const Address&> callbacks[4];
 
     CommandLine cmd;
     cmd.AddValue ("stopTime", "StopTime of simulatino.", stopTime);
-    cmd.AddValue ("p2pDelay", "Delay of p2p links. default is 10ms.", p2pdelay);
+    cmd.AddValue ("p2pDelay", "Delay of p2p links. default is 50ms.", p2pdelay);
     cmd.AddValue ("flows", "Number of TCP flows. Default is 1", flows);
     cmd.AddValue ("mode", "TCP (0), MPTCP full mesh (1) or MPTCP ndifforts(2). Default is MPTCP full mesh.", mode);
     cmd.AddValue ("debug", "Turn MPTCP debug on or off", debug);
     cmd.AddValue ("ccalg", "Set TCP Congestion Control Algorithm.", ccalg);
+    cmd.AddValue ("delay", "Set variable delay on or off", delay);
     cmd.Parse (argc, argv);
 
     PointToPointHelper pointToPointServer;
@@ -92,7 +172,14 @@ int main (int argc, char *argv[])
     LinuxStackHelper stack;
     DceManagerHelper dceManager;
 
+    NetDeviceContainer clientDevices;
 
+    if(delay){
+        callbacks[0] = MakeCallback(&netDevCbOne);
+        callbacks[1] = MakeCallback(&netDevCbTwo);
+        callbacks[2] = MakeCallback(&netDevCbThree);
+        callbacks[3] = MakeCallback(&netDevCbFour);
+    }
 
     GlobalValue::Bind ("ChecksumEnabled", BooleanValue (false));
     nodes.Create (3);
@@ -105,7 +192,7 @@ int main (int argc, char *argv[])
     std::cout << "Subflows: " << flows << " Mode: " << mode << "\n";
 
     pointToPointServer.SetDeviceAttribute ("DataRate", StringValue ("1Gb/s"));
-    //pointToPointServer.SetChannelAttribute ("Delay", StringValue (p2pdelay));
+    pointToPointServer.SetChannelAttribute ("Delay", StringValue ("0ms"));
     serverDevices = pointToPointServer.Install(nodes.Get(1), nodes.Get(2));
 
     /*Setup Server Routes*/
@@ -126,7 +213,16 @@ int main (int argc, char *argv[])
     setPos (nodes.Get (2), 150, 15, 0);
 
     for (int i = 0; i < flows; i++){
-        pointToPointClient.Install(nodes.Get(0), nodes.Get(1));
+        NetDeviceContainer netDevContainer = pointToPointClient.Install(nodes.Get(0), nodes.Get(1));
+        Ptr<NetDevice> clientDevice = netDevContainer.Get(0);
+        Ptr<NetDevice> gatewayDevice = netDevContainer.Get(1);
+        if(delay){
+            int whichDelay = i % 4;
+            clientDevice->SetReceiveCallback(callbacks[whichDelay]);
+            gatewayDevice->SetReceiveCallback(callbacks[whichDelay]);
+        }
+
+        clientDevices.Add(clientDevice);
 
         std::stringstream cmd;
 
@@ -140,18 +236,29 @@ int main (int argc, char *argv[])
         LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), cmd.str());
         cmd.str(std::string());
 
-        cmd << "route add default via 192.168." << i << ".1 dev sim" << i << " metric " << i + 1;
-        LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), cmd.str());
-        cmd.str(std::string());
+        if(mode != MODE_TCP_LB){
+            cmd << "route add default via 192.168." << i << ".1 dev sim" << i << " metric " << i + 1;
+            LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), cmd.str());
+            cmd.str(std::string());
+        }
 
         cmd << "rule add from 192.168." << i << ".0/24 lookup " << i + 1;
         LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), cmd.str());
         cmd.str(std::string());
 
+
         cmd << "route add default via 192.168." << i << ".1 dev sim" << i << " table " << i + 1;
         LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), cmd.str());
         cmd.str(std::string());
 
+        cmd << "route add 192.168." << i << ".0/24 dev sim" << i << " table " << i + 1;
+        LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), cmd.str());
+        cmd.str(std::string());
+
+
+        //cmd << "rule add fwmark " << i + 1 << " lookup " << i + 1;
+        //LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), cmd.str());
+        //cmd.str(std::string());
 
         /*Setup Gateway Addresses*/
 
@@ -163,6 +270,17 @@ int main (int argc, char *argv[])
         LinuxStackHelper::RunIp (nodes.Get (1), Seconds (0.1), cmd.str());
         cmd.str(std::string());
 
+    }
+    if (mode == MODE_TCP_LB){
+        std::stringstream cmd;
+        cmd.str(std::string());
+        cmd << "route add default scope global";
+        for (int i = 0; i < flows; i++){
+            cmd << " nexthop via 192.168." << i << ".1 dev sim" << i << " weight 1";
+        }
+        cmd << "";
+        std::cout << "LB Gateway: " << cmd.str() << "\n";
+        LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), cmd.str());
     }
 
     LinuxStackHelper::RunIp (nodes.Get (0), Seconds (1), "addr show");
@@ -248,6 +366,7 @@ int main (int argc, char *argv[])
     LinuxStackHelper::SysctlGet (nodes.Get (0), Seconds (1),".net.ipv4.tcp_congestion_control", &PrintTcpFlags);
 
 
+
     DceApplicationHelper dce;
     ApplicationContainer apps;
 
@@ -266,14 +385,11 @@ int main (int argc, char *argv[])
         dce.AddArgument ("--time");
         dce.AddArgument (iperfTime);
         dce.AddArgument ("-m");
-        dce.AddArgument ("-l");
-        dce.AddArgument ("64K");
-
 
         apps = dce.Install (nodes.Get (0));
-        apps.Start (Seconds (60.0));
+        apps.Start (Seconds (10.0));
         std::cout << "iperf -c 172.16.1.1 -i 1 --time 60\n";
-    } else {
+    } else if(mode == MODE_TCP) {
         for(int i = 0; i < flows; i++){
             std::stringstream bind;
 
@@ -292,13 +408,30 @@ int main (int argc, char *argv[])
             dce.AddArgument ("--time");
             dce.AddArgument (iperfTime);
             dce.AddArgument ("-m");
-            dce.AddArgument ("-l");
-            dce.AddArgument ("64K");
 
             apps = dce.Install (nodes.Get (0));
-            apps.Start (Seconds (60.0));
+            apps.Start (Seconds (10.0));
             std::cout << "iperf -c 172.16.1.1 -i 1 --time 60 -B" << bind.str() << "\n";
         }
+    } else {
+        std::stringstream flowstr;
+
+        flowstr << "" << flows << "";
+
+        dce.SetBinary ("iperf");
+        dce.ResetArguments ();
+        dce.ResetEnvironment ();
+        dce.AddArgument ("-c");
+        dce.AddArgument ("172.16.1.1");
+        dce.AddArgument("-P");
+        dce.AddArgument(flowstr.str());
+        //dce.ParseArguments ("-y C");
+        dce.AddArgument ("--time");
+        dce.AddArgument (iperfTime);
+
+        apps = dce.Install (nodes.Get (0));
+        apps.Start (Seconds (10.0));
+        std::cout << "iperf -c 172.16.1.1 -i 1 --time 60 -P" << flowstr.str() << "\n";
     }
 
     dce.SetBinary ("iperf");
@@ -309,7 +442,7 @@ int main (int argc, char *argv[])
     apps = dce.Install (nodes.Get (2));
     apps.Start (Seconds (8.00));
 
-    pointToPointClient.EnablePcapAll ("mptcp-subflows", false);
+    pointToPointClient.EnablePcap("mptcp-subflows", clientDevices, false);
 
     LinuxStackHelper::PopulateRoutingTables ();
 

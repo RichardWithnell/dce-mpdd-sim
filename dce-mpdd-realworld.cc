@@ -25,7 +25,11 @@
 
 using namespace ns3;
 
+/*
+ http://www.cl.cam.ac.uk/~cm542/papers/minema08.pdf
 
+
+*/
 
 uint32_t
 get_height(uint32_t stride, uint32_t nodes)
